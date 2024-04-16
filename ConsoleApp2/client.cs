@@ -1,34 +1,79 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Net.Sockets;
 using System.Net;
-using System.Reflection.PortableExecutable;
+using System.Net.Sockets;
+using System.Text;
+using System.Threading;
 
-namespace Client {
-    class Program {
-        static void Main() {
-            Socket sck = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+class Client {
+    private static string serverIp = "127.0.0.1";
+    private static int port = 1994;
 
-            IPEndPoint endpoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), 1994);
-            sck.Connect(endpoint);
+    static void Main() {
+        ConnectToServer();
+    }
 
-            Console.Write("введите сообщение");
-            string msg = Console.ReadLine();
-            byte[] msgBuffer = Encoding.Default.GetBytes(msg);
-            sck.Send(msgBuffer, 0, msgBuffer.Length, 0);
+    public static void ConnectToServer() {
+        TcpClient clientSocket = new();
+        try {
+            clientSocket.Connect(IPAddress.Parse(serverIp), port);
 
-            byte[] buffer = new byte[1024];
-            int rec = sck.Receive(buffer, 0, buffer.Length, 0);
+            Console.WriteLine("Выполнено соединение с сервером");
 
-            Array.Resize(ref buffer, rec);
+            NetworkStream serverStream = clientSocket.GetStream();
 
-            Console.WriteLine("получено: {0}", Encoding.Default.GetString(buffer));
+            Thread receiveThread = new(() => {
+                ReceiveMessages(serverStream);
+            });
+            receiveThread.Start();
 
-            Console.Read();
+            Thread sendThread = new(() => {
+                while (true) {
+                    Console.Write("Ввод: ");
+                    string message = Console.ReadLine();
+                    if (message != null) {
+                        byte[] outStream = Encoding.ASCII.GetBytes(message);
+                        serverStream.Write(outStream, 0, outStream.Length);
+                        serverStream.Flush();
+                    }
 
+                }
+            });
+            sendThread.Start();
+        } catch (Exception ex) {
+            Print("Error connecting to the server: " + ex.Message);
         }
+    }
+
+    public static void ReceiveMessages(NetworkStream serverStream) {
+        try {
+            while (true) {
+                byte[] inStream = new byte[10025];
+                int bytesRead = serverStream.Read(inStream, 0, inStream.Length);
+
+                if (bytesRead == 0) {
+                    Print("Server disconnected.");
+                    break;
+                }
+
+                string returndata = Encoding.ASCII.GetString(inStream, 0, bytesRead);
+
+                Print(returndata);
+            }
+        } catch (Exception ex) {
+            Print("Server terminated. " + ex.Message);
+            serverStream.Close();
+        }
+    }
+    public static void Print(string message) {
+        if (OperatingSystem.IsWindows()) {
+            var (Left, Top) = Console.GetCursorPosition();
+            int left = Left;
+            int top = Top;
+
+            Console.MoveBufferArea(0, top, left, 1, 0, top + 1);
+            Console.SetCursorPosition(0, top);
+            Console.WriteLine(message);
+            Console.SetCursorPosition(left, top + 1);
+        } else Console.WriteLine(message);
     }
 }
